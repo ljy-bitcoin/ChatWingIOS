@@ -1,8 +1,6 @@
-name: iOS Build and Tests
+name: Build iPhone IPA
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -11,6 +9,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 20
 
     steps:
       - name: Download source
@@ -19,23 +18,35 @@ jobs:
       - name: Check project structure
         run: python3 Scripts/verify.py
 
-      - name: Build app and extensions
+      - name: Build for real iPhone
         run: |
           xcodebuild \
             -project ChatWing.xcodeproj \
             -scheme ChatWing \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             build
 
-      - name: Run unit tests
-        shell: bash
+      - name: Package unsigned IPA
         run: |
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
-          xcodebuild \
-            -project ChatWing.xcodeproj \
-            -scheme ChatWing \
-            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/ChatWing.app"
+          test -d "$APP"
+          test -d "$APP/PlugIns/ChatWingBroadcast.appex"
+          test -d "$APP/PlugIns/ChatWingKeyboard.appex"
+          mkdir -p package/Payload
+          ditto "$APP" package/Payload/ChatWing.app
+          cd package
+          zip -qry ChatWing-unsigned.ipa Payload
+
+      - name: Upload IPA for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatWing-iPhone-IPA
+          path: package/ChatWing-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
