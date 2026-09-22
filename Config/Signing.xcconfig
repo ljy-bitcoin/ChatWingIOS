@@ -1,0 +1,5 @@
+// Set your registered reverse-domain identifier and Apple Developer Team ID.
+// Or run: python3 Scripts/configure.py --bundle-id com.yourname.chatwing --team ABCDE12345
+BUNDLE_PREFIX = com.example.chatwing
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
