@@ -39,7 +39,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func save() -> Bool {
         do {
-            guard settings.crop.isValid else { throw ChatWingError.message("识别区域上下、左右边界不正确") }
+            guard settings.crop.isValid, (settings.titleCrop ?? TitleRegion()).isValid else { throw ChatWingError.message("识别区域上下、左右边界不正确") }
             _ = try APIClient.endpoint(settings.judgeURL); _ = try APIClient.endpoint(settings.replyURL)
             guard !settings.judgeModel.isEmpty, !settings.replyModel.isEmpty, !settings.contacts.isEmpty else {
                 throw ChatWingError.message("请填写模型名称，并至少保留一个联系人")
@@ -108,7 +108,8 @@ final class AppModel: ObservableObject {
                 }
                 let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
                 let raw = (properties?[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value ?? 1
-                return try OCRReader().read(cgImage:cg, orientation:CGImagePropertyOrientation(rawValue:raw) ?? .up, crop:crop)
+                return try OCRReader().read(cgImage:cg, orientation:CGImagePropertyOrientation(rawValue:raw) ?? .up,
+                    crop:crop, titleCrop:settings.titleCrop ?? TitleRegion())
             }.value
             manualText = snapshot.messages.map { "\($0.label)：\($0.text)" }.joined(separator:"\n")
             notice = "识别标题：\(snapshot.title)。请核对文字和发言方，再点分析；图片尚未上传。"
