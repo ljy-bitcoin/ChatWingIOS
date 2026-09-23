@@ -6,14 +6,14 @@ import ImageIO
 struct OCRSnapshot { var title: String; var messages: [ChatMessage] }
 final class OCRReader {
     private let context = CIContext(options: [.cacheIntermediates:false])
-    func read(pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation, crop: CropRegion) throws -> OCRSnapshot {
-        try read(image: CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation), crop: crop)
+    func read(pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation, crop: CropRegion, titleCrop: TitleRegion = TitleRegion()) throws -> OCRSnapshot {
+        try read(image: CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation), crop: crop, titleCrop: titleCrop)
     }
-    func read(cgImage: CGImage, orientation: CGImagePropertyOrientation = .up, crop: CropRegion) throws -> OCRSnapshot {
-        try read(image: CIImage(cgImage: cgImage).oriented(orientation), crop: crop)
+    func read(cgImage: CGImage, orientation: CGImagePropertyOrientation = .up, crop: CropRegion, titleCrop: TitleRegion = TitleRegion()) throws -> OCRSnapshot {
+        try read(image: CIImage(cgImage: cgImage).oriented(orientation), crop: crop, titleCrop: titleCrop)
     }
-    private func read(image: CIImage, crop: CropRegion) throws -> OCRSnapshot {
-        guard crop.isValid else { throw ChatWingError.message("识别区域无效") }
+    private func read(image: CIImage, crop: CropRegion, titleCrop: TitleRegion) throws -> OCRSnapshot {
+        guard crop.isValid, titleCrop.isValid else { throw ChatWingError.message("识别区域无效") }
         let size = image.extent.size
         let scale = min(1, min(960 / size.width, 1700 / size.height))
         let reduced = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
@@ -28,7 +28,8 @@ final class OCRReader {
         }
         let body = request(), title = request()
         body.regionOfInterest = CGRect(x:crop.left, y:1-crop.bottom, width:crop.right-crop.left, height:crop.bottom-crop.top)
-        title.regionOfInterest = CGRect(x:0.17, y:0.83, width:0.66, height:0.13)
+        title.regionOfInterest = CGRect(x:titleCrop.left, y:1-titleCrop.bottom,
+            width:titleCrop.right-titleCrop.left, height:titleCrop.bottom-titleCrop.top)
         try VNImageRequestHandler(cgImage:cg, options:[:]).perform([title, body])
         let titleText = (title.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
         var lines: [OCRLine] = (body.results ?? []).compactMap { observation in
