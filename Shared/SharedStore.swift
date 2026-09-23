@@ -85,45 +85,65 @@ enum SharedKeychain {
     static func group() throws -> String {
         lock.lock(); defer { lock.unlock() }
         if let cachedGroup { return cachedGroup }
-        // Ask the OS for the actual signing prefix. Do not trust unsigned Info.plist values.
-        let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "ChatWing.SigningProbe.v1",
-            kSecAttrAccount as String: Bundle.main.bundleIdentifier ?? "ChatWing"]
-        var lookup = probe
-        lookup[kSecReturnAttributes as String] = true
-        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        var status = SecItemCopyMatching(lookup as CFDictionary, &result)
-        if status == errSecItemNotFound {
-            var insert = probe
-            insert[kSecValueData as String] = Data([1])
-            insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let added = SecItemAdd(insert as CFDictionary, nil)
-            guard added == errSecSuccess || added == errSecDuplicateItem else { throw error(added) }
-            status = SecItemCopyMatching(lookup as CFDictionary, &result)
+        // A re-signer may leave TEAM.* as the default group. Do not create
+        // a default item first: explicitly validate concrete profile candidates.
+        // Profile values are candidates only; Security.framework remains the authority.
+        var candidates: [String] = []
+        let bundles = [Bundle.main.bundleURL,
+            Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()]
+        for bundle in bundles {
+            let url = bundle.appendingPathComponent("embedded.mobileprovision")
+            guard let data = try? Data(contentsOf: url),
+                  let start = data.range(of: Data("<?xml".utf8)),
+                  let end = data.range(of: Data("</plist>".utf8),
+                    in: start.lowerBound..<data.endIndex),
+                  let plist = try? PropertyListSerialization.propertyList(
+                    from: data.subdata(in: start.lowerBound..<end.upperBound), options: [], format: nil),
+                  let profile = plist as? [String: Any],
+                  let entitlements = profile["Entitlements"] as? [String: Any] else { continue }
+            if let identifier = entitlements["application-identifier"] as? String,
+               !identifier.contains("*") { candidates.append(identifier) }
+            if let groups = entitlements["keychain-access-groups"] as? [String] {
+                candidates.append(contentsOf: groups.filter { !$0.contains("*") })
+            }
         }
-        guard status == errSecSuccess else { throw error(status) }
-        guard let attrs = result as? [String: Any],
-              let actual = attrs[kSecAttrAccessGroup as String] as? String,
-              let prefix = actual.split(separator: ".").first,
-              let configured = Bundle.main.object(forInfoDictionaryKey: "SharedAppGroup") as? String,
-              configured.hasPrefix("group."), !configured.contains("$(") else {
-            throw ChatWingError.message("无法识别签名共享分组，请重新签名并保留扩展。")
+        // Without a profile, read an existing default probe if available.
+        if candidates.isEmpty {
+            let probe: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "ChatWing.SigningProbe.v1",
+                kSecAttrAccount as String: Bundle.main.bundleIdentifier ?? "ChatWing",
+                kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(probe as CFDictionary, &result)
+            if status == errSecSuccess, let attrs = result as? [String: Any],
+               let actual = attrs[kSecAttrAccessGroup as String] as? String,
+               !actual.contains("*") { candidates.append(actual) }
         }
-        let candidate = String(prefix) + "." + String(configured.dropFirst(6)) + ".bridge"
-        var validation: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service, kSecAttrAccount as String: "bridge-probe",
-            kSecAttrAccessGroup as String: candidate,
-            kSecValueData as String: Data([1]),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
-        let added = SecItemAdd(validation as CFDictionary, nil)
-        guard added == errSecSuccess || added == errSecDuplicateItem else { throw error(added) }
-        validation.removeValue(forKey: kSecValueData as String)
-        validation.removeValue(forKey: kSecAttrAccessible as String)
-        let readable = SecItemCopyMatching(validation as CFDictionary, nil)
-        guard readable == errSecSuccess else { throw error(readable) }
-        cachedGroup = candidate
-        return candidate
+        var failures: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates where !candidate.isEmpty && seen.insert(candidate).inserted {
+            var validation: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service, kSecAttrAccount as String: "bridge-probe",
+                kSecAttrAccessGroup as String: candidate,
+                kSecValueData as String: Data([1]),
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+            let added = SecItemAdd(validation as CFDictionary, nil)
+            guard added == errSecSuccess || added == errSecDuplicateItem else {
+                failures.append("写入 \(added)")
+                continue
+            }
+            validation.removeValue(forKey: kSecValueData as String)
+            validation.removeValue(forKey: kSecAttrAccessible as String)
+            let readable = SecItemCopyMatching(validation as CFDictionary, nil)
+            guard readable == errSecSuccess else {
+                failures.append("读取 \(readable)")
+                continue
+            }
+            cachedGroup = candidate
+            return candidate
+        }
+        let detail = failures.isEmpty ? "未找到具体分组" : failures.joined(separator: "、")
+        throw ChatWingError.message("兼容版2：钥匙串权限验证失败（\(detail)）。需检查重签名权限，重复保存无效。")
     }
 
     static func query(service: String = "ChatWing.Shared.v1", account: String) throws -> [String: Any] {
