@@ -102,6 +102,7 @@ final class AppModel: ObservableObject {
         do {
             guard let data = try await photo.loadTransferable(type:Data.self) else { throw ChatWingError.message("无法读取所选图片") }
             let crop = settings.crop
+            let titleCrop = settings.titleCrop ?? TitleRegion()
             let snapshot = try await Task.detached(priority:.userInitiated) {
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil), let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                     throw ChatWingError.message("图片格式不支持")
@@ -109,7 +110,7 @@ final class AppModel: ObservableObject {
                 let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
                 let raw = (properties?[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value ?? 1
                 return try OCRReader().read(cgImage:cg, orientation:CGImagePropertyOrientation(rawValue:raw) ?? .up,
-                    crop:crop, titleCrop:settings.titleCrop ?? TitleRegion())
+                    crop:crop, titleCrop:titleCrop)
             }.value
             manualText = snapshot.messages.map { "\($0.label)：\($0.text)" }.joined(separator:"\n")
             notice = "识别标题：\(snapshot.title)。请核对文字和发言方，再点分析；图片尚未上传。"
