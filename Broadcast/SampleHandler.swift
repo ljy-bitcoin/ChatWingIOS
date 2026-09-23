@@ -26,6 +26,12 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func broadcastStarted(withSetupInfo setupInfo: [String : NSObject]?) {
         worker.async {
+            guard self.store.read("settings.json", as: Settings.self) != nil else {
+                self.finishBroadcastWithError(NSError(domain: "ChatWing.Signing", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "录屏扩展无法读取主程序配置。请先在聊伴保存配置；若仍失败，当前签名没有提供可用的跨扩展共享权限。"] ))
+                return
+            }
             self.running = true
             let timer = DispatchSource.makeTimerSource(queue:self.worker)
             timer.schedule(deadline:.now(), repeating:2)

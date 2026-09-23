@@ -3,11 +3,16 @@ import Security
 
 enum Keys {
     private static func query(_ account: String) throws -> [String: Any] {
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "SharedKeychainGroup") as? String, !group.contains("$(") else {
+        if !SharedStore.shared.usesAppGroup {
+            return try SharedKeychain.query(service: "ChatWing.API", account: account)
+        }
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "SharedKeychainGroup") as? String,
+              !group.contains("$(") else {
             throw ChatWingError.message("Keychain 分组未配置，请检查签名。")
         }
-        return [kSecClass as String:kSecClassGenericPassword, kSecAttrService as String:"ChatWing.API",
-                kSecAttrAccount as String:account, kSecAttrAccessGroup as String:group]
+        return [kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "ChatWing.API", kSecAttrAccount as String: account,
+                kSecAttrAccessGroup as String: group]
     }
     static func get(_ account: String) throws -> String {
         var q = try query(account); q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
