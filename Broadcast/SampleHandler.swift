@@ -77,9 +77,11 @@ final class SampleHandler: RPBroadcastSampleHandler {
         }
         guard !store.foreground else { message = "请切换到选定联系人的聊天页面"; return }
         do {
-            let snapshot = try ocr.read(pixelBuffer:pixel, orientation:orientation, crop:settings.crop)
+            let snapshot = try ocr.read(pixelBuffer:pixel, orientation:orientation, crop:settings.crop,
+                titleCrop:settings.titleCrop ?? TitleRegion())
             if settings.requireTitleMatch && !TextLogic.matchesTitle(snapshot.title, contact:settings.selectedContact) {
-                invalidate(clearResult:true); message = "标题未匹配「\(settings.selectedContact.name)」，未调用模型"; return
+                let observedTitle = snapshot.title.isEmpty ? "未识别到标题" : snapshot.title
+                invalidate(clearResult:true); message = "标题未匹配「\(settings.selectedContact.name)」；识别到「\(observedTitle)」，未调用模型"; return
             }
             guard !snapshot.messages.isEmpty else { invalidate(clearResult:true); message = "当前区域没有可识别消息"; return }
             let fingerprint = TextLogic.fingerprint(snapshot.messages, contactID:settings.selectedContact.id)
