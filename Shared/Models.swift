@@ -14,6 +14,14 @@ struct CropRegion: Codable, Equatable {
     var right = 0.96
     var isValid: Bool { top >= 0 && bottom <= 1 && left >= 0 && right <= 1 && bottom - top >= 0.1 && right - left >= 0.3 }
 }
+struct TitleRegion: Codable, Equatable {
+    // Normalized coordinates with origin at top-left, after orientation correction.
+    var top = 0.03
+    var bottom = 0.22
+    var left = 0.08
+    var right = 0.92
+    var isValid: Bool { top >= 0 && bottom <= 1 && left >= 0 && right <= 1 && bottom - top >= 0.03 && right - left >= 0.2 }
+}
 struct Contact: Codable, Identifiable, Equatable {
     var id = UUID()
     var name = "新联系人"
@@ -37,6 +45,8 @@ struct Settings: Codable {
     var selectedContactID: UUID?
     var knowledge = ""
     var crop = CropRegion()
+    // Optional so settings saved by earlier versions continue to decode.
+    var titleCrop: TitleRegion?
     var frameInterval = 2.0
     var requestInterval = 12.0
     var requireTitleMatch = true
